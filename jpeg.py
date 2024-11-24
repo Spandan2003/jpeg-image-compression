@@ -73,13 +73,17 @@ class JPEGCodec:
         return heap[0]
 
     @staticmethod
-    def generate_huffman_codes(node, code="", codebook={}):
+    def generate_huffman_codes(node, code="", codebook=None):
         """Generate Huffman codes from a Huffman tree."""
+        if codebook is None:
+            codebook = {}  # Initialize a new dictionary if none is provided
+
         if node is not None:
-            if node.symbol is not None:
+            if node.symbol is not None:  # Leaf node
                 codebook[node.symbol] = code
             JPEGCodec.generate_huffman_codes(node.left, code + "0", codebook)
             JPEGCodec.generate_huffman_codes(node.right, code + "1", codebook)
+
         return codebook
 
     @staticmethod
@@ -168,7 +172,7 @@ class JPEGCodec:
                             run_length = 0
                     if last_non_zero != 63:
                         ac_symbols.append((0, 0))  # End of block
-        self.temp = dc_differences 
+         
         # Create frequency tables
         dc_frequencies = Counter(dc_differences)
         ac_frequencies = Counter([val[2] if len(val)==3 else val[1] for val in ac_symbols ])
@@ -216,13 +220,10 @@ class JPEGCodec:
 
     # Decode DC coefficients
     def decode_dc_coefficients(self, encoded_dc, dc_decoding_map):
-        dc_differences = self.temp #self.decode_huffman_data(encoded_dc, dc_decoding_map)
-        #dc_differences = self.decode_huffman_data(encoded_dc, dc_decoding_map)### Uncomment this for actual result
+        dc_differences = self.decode_huffman_data(encoded_dc, dc_decoding_map)
+        
         dc_coefficients = []
-        global new_enc
-        new_enc = []
         previous_dc = 0
-        print(dc_differences[900:950])
         count = 0
         for diff in dc_differences:
             current_dc = previous_dc + diff
@@ -230,8 +231,6 @@ class JPEGCodec:
                 count+=1
             dc_coefficients.append(current_dc)
             previous_dc = current_dc
-            new_enc.append(diff)
-        print(dc_coefficients[900:950])
         return dc_coefficients
 
     # Decode AC coefficients
@@ -315,8 +314,6 @@ class JPEGCodec:
         reconstructed_image = np.zeros((height, width))
 
         q_matrix = (50 / quality) * self.Q_50_matrix  # Adjust quantization matrix based on quality
-        global new_quant
-        new_quant = np.zeros((height, width))
         for i in range(0, height, 8):
             for j in range(0, width, 8):
                 block = reconstructed_matrix[i:i+8, j:j+8]
@@ -326,7 +323,6 @@ class JPEGCodec:
                 for m in range(8):
                     for n in range(8):
                         iquan_coef[m, n] = block[m, n] * q_matrix[m, n]
-                new_quant[i:i+8, j:j+8] = iquan_coef
                 # Apply inverse DCT to the block
                 reconstructed_image[i:i+8, j:j+8] = cv2.idct(iquan_coef)
 
@@ -343,8 +339,6 @@ class JPEGCodec:
         grayscale = self.to_grayscale(image)
         padded = self.pad_image(grayscale)
         quantized = self.quantize_image(padded, quality)
-        global old_quant
-        old_quant = quantized
         dc_codes, ac_codes, encoded_dc, encoded_ac = self.jpeg_huffman_encode(quantized)
         height, width = np.shape(quantized)
         encoded_bits =self.encode_to_bits(dc_codes, ac_codes, encoded_dc, encoded_ac, height, width)
