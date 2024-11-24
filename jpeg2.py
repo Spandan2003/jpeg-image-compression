@@ -5,7 +5,6 @@ import heapq
 from collections import Counter
 import matplotlib.pyplot as plt
 
-
 class HuffmanNode:
     """Class for a node in the Huffman tree."""
     def __init__(self, symbol, freq):
@@ -166,7 +165,6 @@ class JPEGCodec:
                             run_length = 0
                     if last_non_zero != 63:
                         ac_symbols.append((0, 0, 0))  # End of block
-         
         # Create frequency tables
         dc_frequencies = Counter(dc_differences)
         ac_frequencies = Counter([val[2] if len(val)==3 else val[1] for val in ac_symbols ])
@@ -209,16 +207,21 @@ class JPEGCodec:
                 decoded_symbols.append(decoding_map[current_code])
                 current_code = ""
         if(current_code != ""):
-            raise ValueError("Encoded bit not present in map")
+            # print("Encoded bit not present in map")
+            pass
+            # raise RuntimeWarning("Encoded bit not present in map")
         return decoded_symbols
 
     # Decode DC coefficients
     def decode_dc_coefficients(self, encoded_dc, dc_decoding_map):
-        dc_differences = self.decode_huffman_data(encoded_dc, dc_decoding_map)
+        dc_differences = self.decode_huffman_data(encoded_dc, dc_decoding_map)### Uncomment this for actual result
         dc_coefficients = []
         previous_dc = 0
+        count = 0
         for diff in dc_differences:
             current_dc = previous_dc + diff
+            if(count<100):
+                count+=1
             dc_coefficients.append(current_dc)
             previous_dc = current_dc
         return dc_coefficients
@@ -231,7 +234,7 @@ class JPEGCodec:
         ac_coefficients = []
         count_of_block = 0
         for symbol in ac_symbols:
-            if (symbol == (0, 0)):  # End-of-block (EOB)
+            if (symbol[0]==0 and symbol[-1]==0):  # End-of-block (EOB)
                 while count_of_block < 63:
                     ac_coefficients.append(0)
                     count_of_block+=1
@@ -241,20 +244,17 @@ class JPEGCodec:
                 ac_coefficients.extend([0] * run_length)
                 ac_coefficients.append(value)
                 count_of_block+= (1+run_length)
-
                 if(count_of_block==63):
                     count_of_block = 0
         return ac_coefficients
 
     # Reconstruct the quantized coefficients matrix
     def reconstruct_quantized_matrix(self, dc_coefficients, ac_coefficients, height, width):
-        padded_height = (height // 8 + 1) * 8
-        padded_width = (width // 8 + 1) * 8
-        matrix = np.zeros((padded_height, padded_width), dtype=int)
+        matrix = np.zeros((height, width), dtype=int)
         block_index = 0
         ac_index = 0
-        for i in range(0, padded_height, 8):
-            for j in range(0, padded_width, 8):
+        for i in range(0, height, 8):
+            for j in range(0, width, 8):
                 # Initialize block with zeros
                 block = np.zeros(64, dtype=int)
 
@@ -320,46 +320,228 @@ class JPEGCodec:
 
         return reconstructed_image
     
+    def encode_dc_encoded(self, dc_encoded):
+        """Encodes the dc_encoded list of bit strings into bytes."""
+        # Combine all bit strings into one
+        combined_bits = ''.join(dc_encoded)
+        
+        # Calculate padding needed to make the length a multiple of 8
+        padding_length = (8 - len(combined_bits) % 8) % 8
+        combined_bits += '0' * padding_length  # Add zero-padding
+
+        # Convert the padded bit string to bytes
+        encoded_bytes = bytearray()
+        for i in range(0, len(combined_bits), 8):
+            byte = int(combined_bits[i:i+8], 2)  # Convert 8-bit chunks to integers
+            encoded_bytes.append(byte)
+
+        return encoded_bytes
+
+    def encode_to_bytes_full(self, dc_codes, ac_codes, dc_encoded, ac_encoded, height, width):
+        """
+        Encode the given data into bytes including dc_encoded and ac_encoded.
+
+        Args:
+            height (int): Image height.
+            width (int): Image width.
+            dc_codes (dict): Dictionary mapping integers to bit streams for DC codes.
+            ac_codes (dict): Dictionary mapping integers to bit streams for AC codes.
+            dc_encoded (str): Huffman-encoded bit stream for DC coefficients.
+            ac_encoded (list): List of tuples for AC encoding.
+                Each tuple contains:
+                - run_length (int): Run-length of zeros before a coefficient.
+                - size (int): Size of the coefficient.
+                - value (str): Huffman-encoded bit stream for the coefficient.
+
+        Returns:
+            bytes: Encoded byte sequence.
+        """
+        import struct
+
+        # Helper to convert a bit string to bytes
+        def bits_to_bytes(bit_string):
+            num_bits = len(bit_string)
+            byte_array = bytearray()
+            for i in range(0, num_bits, 8):
+                byte_chunk = bit_string[i:i+8]
+                byte_array.append(int(byte_chunk.ljust(8, '0'), 2))  # Pad the last byte with zeros if necessary
+            return byte_array
+
+        encoded_data = bytearray()
+
+        # 1. Store height (2 bytes) and width (2 bytes)
+        encoded_data.extend(struct.pack(">H", height))  # Unsigned 2-byte integer, big-endian
+        encoded_data.extend(struct.pack(">H", width))
+
+        # 2. Encode DC codes
+        
+        encoded_data.extend(struct.pack(">I", len(dc_codes)))  # Number of DC dictionary elements
+        for key, bit_stream in dc_codes.items():
+            # Key as 2 bytes
+            encoded_data.extend(struct.pack(">h", key))
+            # Bit stream size as 1 byte
+            encoded_data.append(len(bit_stream))
+            # Convert bit stream to bytes and append
+            encoded_data.extend(bits_to_bytes(bit_stream))
+
+        # 3. Encode AC codes
+        encoded_data.extend(struct.pack(">I", len(ac_codes)))  # Number of AC dictionary elements
+        for key, bit_stream in ac_codes.items():
+            # Key as 2 bytes
+            encoded_data.extend(struct.pack(">h", key))
+            # Bit stream size as 1 byte
+            encoded_data.append(len(bit_stream))
+            # Bit stream size as 1 byte
+            encoded_data.extend(bits_to_bytes(bit_stream))
+
+        # 4. Encode DC encoded sequence
+        dc_encoded = self.encode_dc_encoded(dc_encoded)
+        encoded_data.extend(struct.pack(">I", len(dc_encoded)))  # Length of DC encoded bit stream (4 bytes)
+        encoded_data.extend(dc_encoded)  # Convert and append DC encoded bit stream
+
+        # 5. Encode AC encoded sequence
+        ac_encoded = [(el[0], el[1], el[2]) if len(el)==3 else (el[0], 0, el[1]) for el in ac_encoded]
+        ac_run_lengths = "".join(f"{run_length*16+hoffman_size:08b}" for run_length, hoffman_size, _ in ac_encoded)  # 8 bits per run_length
+        ac_values = "".join(value for _, _, value in ac_encoded)  # Concatenate all Huffman-encoded values
+        
+        # Add run-length encoding as bytes
+        encoded_data.extend(struct.pack(">I", len(ac_run_lengths)))  # Length of AC run-length bit stream
+        encoded_data.extend(bits_to_bytes(ac_run_lengths))  # Convert and append run-length bit stream
+
+        # Add AC Huffman-encoded values as bytes
+        encoded_data.extend(struct.pack(">I", len(ac_values)))  # Length of AC values bit stream
+        encoded_data.extend(bits_to_bytes(ac_values))  # Convert and append AC values bit stream
+
+        return bytes(encoded_data)
+    def decode_from_bytes_full(self, encoded_data):
+        """
+        Decodes the given byte sequence into the original data including dc_encoded and ac_encoded.
+
+        Args:
+            encoded_data (bytes): Encoded byte sequence.
+
+        Returns:
+            dict: Decoded data containing height, width, dc_codes, ac_codes, dc_encoded, and ac_encoded.
+        """
+        import struct
+
+        # Helper to convert bytes back to a bit string
+        def bytes_to_bits(byte_array):
+            return ''.join(f"{byte:08b}" for byte in byte_array)
+
+        # Helper to decode a bit stream into a dictionary
+        def decode_huffman_dict(encoded_bytes, num_elements, offset):
+            huffman_dict = {}
+            for _ in range(num_elements):
+                key = struct.unpack_from(">h", encoded_bytes, offset)
+                key = key[0]
+                offset += 2
+                bit_stream_size = encoded_bytes[offset]
+                offset += 1
+                bit_stream = bytes_to_bits(encoded_bytes[offset:offset + (bit_stream_size + 7) // 8])[:bit_stream_size]
+                offset += (bit_stream_size + 7) // 8
+                huffman_dict[key] = bit_stream
+            return huffman_dict, offset
+
+        if isinstance(encoded_data, list):
+            encoded_data = bytes(encoded_data) 
+
+        decoded_data = {}
+        offset = 0
+
+        # 1. Decode height and width
+        decoded_data["height"], decoded_data["width"] = struct.unpack_from(">HH", encoded_data, offset)
+        offset += 4
+
+        # 2. Decode DC codes
+        num_dc_codes = struct.unpack_from(">I", encoded_data, offset)[0]
+        offset += 4
+        decoded_data["dc_codes"], offset = decode_huffman_dict(encoded_data, num_dc_codes, offset)
+
+
+        # 3. Decode AC codes
+        num_ac_codes = struct.unpack_from(">I", encoded_data, offset)[0]
+        offset += 4
+        decoded_data["ac_codes"], offset = decode_huffman_dict(encoded_data, num_ac_codes, offset)
+        
+        # 4. Decode DC encoded sequence
+        dc_encoded_length = struct.unpack_from(">I", encoded_data, offset)[0]
+        offset += 4
+        dc_encoded_bits = bytes_to_bits(encoded_data[offset:offset + dc_encoded_length * 8])[:dc_encoded_length*8]
+        decoded_data["dc_encoded"] = [dc_encoded_bits[i] for i in range(0, len(dc_encoded_bits))]
+        offset += dc_encoded_length
+        
+        
+        # 5. Decode AC encoded sequence
+        # Decode run-lengths
+        ac_run_lengths_size_length = struct.unpack_from(">I", encoded_data, offset)[0]
+        offset += 4
+        ac_run_lengths_bits = bytes_to_bits(encoded_data[offset:offset + (ac_run_lengths_size_length + 7) // 8])[:ac_run_lengths_size_length]
+        ac_run_lengths = [int(ac_run_lengths_bits[i:i + 4], 2) for i in range(0, len(ac_run_lengths_bits), 8)]
+        hoffman_size = [int(ac_run_lengths_bits[i + 4:i + 8], 2) for i in range(0, len(ac_run_lengths_bits), 8)]
+        offset += (ac_run_lengths_size_length + 7) // 8
+
+        # Decode AC values
+        ac_values_length = struct.unpack_from(">I", encoded_data, offset)[0]
+        offset += 4
+        ac_values_bits = bytes_to_bits(encoded_data[offset:offset + (ac_values_length + 7) // 8])[:ac_values_length]
+        offset += (ac_values_length + 7) // 8
+
+        # Reconstruct AC encoded sequence
+        ac_encoded = []
+        current_value_offset = 0
+        if len(ac_run_lengths) != len(hoffman_size):
+            raise ValueError("Runlength and size are of different lengths")
+        for coeff_index in range(len(hoffman_size)):
+            value = ac_values_bits[current_value_offset:current_value_offset + hoffman_size[coeff_index]]
+            current_value_offset += hoffman_size[coeff_index]
+            ac_encoded.append((ac_run_lengths[coeff_index], hoffman_size[coeff_index], value))
+
+        decoded_data["ac_encoded"] = ac_encoded
+
+        return decoded_data
+
+    
     def encode_to_bits(self, dc_codes, ac_codes, encoded_dc, encoded_ac, height, width):
+        return self.encode_to_bytes_full(dc_codes, ac_codes, encoded_dc, encoded_ac, height, width)
         return [dc_codes, ac_codes, encoded_dc, encoded_ac, height, width]
 
     def decode_from_bits(self, bits):
-        return bits[0], bits[1], bits[2], bits[3], bits[4], bits[5]
-    
-    
-
+        decoded_data = self.decode_from_bytes_full(bits)
+        return decoded_data["dc_codes"], decoded_data["ac_codes"], decoded_data["dc_encoded"], decoded_data["ac_encoded"], decoded_data["height"], decoded_data["width"]
 
     def encode(self, image, quality = 50):
         """Perform full JPEG encoding."""
         grayscale = self.to_grayscale(image)
         padded = self.pad_image(grayscale)
         quantized = self.quantize_image(padded, quality)
+        global old_quant
+        old_quant = quantized
         dc_codes, ac_codes, encoded_dc, encoded_ac = self.jpeg_huffman_encode(quantized)
-        # print(dc_codes.items())
-        # print(ac_codes.items())
-        # print(encoded_dc[:100])
-        # print(encoded_ac[:100])
-        print(quantized, quantized.max())
-        height, width = np.shape(grayscale)
+        height, width = np.shape(quantized)
         encoded_bits =self.encode_to_bits(dc_codes, ac_codes, encoded_dc, encoded_ac, height, width)
         return encoded_bits
 
 
     def decode(self, encoded_data, quality = 50):
         """Perform full JPEG decoding."""
+        global dc_codes, ac_codes, encoded_dc, encoded_ac, height, width
         dc_codes, ac_codes, encoded_dc, encoded_ac, height, width = self.decode_from_bits(encoded_data)
         reconstructed_matrix = self.jpeg_huffman_decode(dc_codes, ac_codes, encoded_dc, encoded_ac, height, width)
-        reconstructed_image = self.reconstruct_image(reconstructed_matrix, quality)[:height, :width]
+        reconstructed_image = self.reconstruct_image(reconstructed_matrix, quality)
         return reconstructed_image
     
 
-test_images = ["flower.png", "tower.png", "house.png"]
 Q = 50
+i = 6
 codec = JPEGCodec()
-image = cv2.imread('images\\' + test_images[2])
+codec2 = JPEGCodec()
+image = cv2.imread('images2\\' + "image" + str(i) + ".png")
 bits = codec.encode(image, Q)
-# print(bits)
-reconstructed_image = codec.decode(bits, Q)
+with open('output/img' + str(i) + '.bin', 'wb') as f:
+    f.write(bits)
+reconstructed_image = codec2.decode(bits, Q)
+
 fig, axes = plt.subplots(1, 2, figsize=(12, 6))
 
 # Original Image
@@ -373,9 +555,6 @@ axes[1].set_title("Reconstructed Image")
 axes[1].axis('off')
 
 plt.show()
-print(image.shape, reconstructed_image.shape)
-
-
 
 
 
