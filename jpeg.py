@@ -23,7 +23,7 @@ class HuffmanNode:
 
 class JPEGCodec:
     """Class to perform JPEG compression and decompression."""
-    def __init__(self, quantization_quality=50):
+    def __init__(self):
         self.Q_50_matrix = np.array([
             [16, 11, 10, 16, 24, 40, 51, 61],
             [12, 12, 14, 19, 26, 58, 60, 55],
@@ -93,7 +93,7 @@ class JPEGCodec:
         If the image is already single-channel, return it as-is.
         """
         if len(image.shape) == 3:  # Color image
-            return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         return image
 
     def pad_image(self, image):
@@ -131,6 +131,8 @@ class JPEGCodec:
 
         previous_dc = 0
         flat_blocks = []
+        global old_enc
+        old_enc = []
 
         for i in range(0, height, 8):
             for j in range(0, width, 8):
@@ -142,6 +144,7 @@ class JPEGCodec:
                 dc = flat[0]
                 dc_diff = dc - previous_dc
                 dc_differences.append(dc_diff)
+                old_enc.append(dc_diff)
                 previous_dc = dc
 
                 # AC coefficients
@@ -165,7 +168,7 @@ class JPEGCodec:
                             run_length = 0
                     if last_non_zero != 63:
                         ac_symbols.append((0, 0))  # End of block
-        
+        self.temp = dc_differences 
         # Create frequency tables
         dc_frequencies = Counter(dc_differences)
         ac_frequencies = Counter([val[2] if len(val)==3 else val[1] for val in ac_symbols ])
@@ -181,8 +184,6 @@ class JPEGCodec:
         # Encode data
         encoded_dc = [dc_codes[diff] for diff in dc_differences]
         encoded_ac = [(symbol[0], symbol[1], ac_codes[symbol[2]]) if len(symbol)==3 else (symbol[0], ac_codes[symbol[1]]) for symbol in ac_symbols]
-        global old_enc
-        old_enc = ac_symbols
         return dc_codes, ac_codes, encoded_dc, encoded_ac
 
     # Reverse zigzag to reconstruct 8x8 blocks
@@ -215,13 +216,22 @@ class JPEGCodec:
 
     # Decode DC coefficients
     def decode_dc_coefficients(self, encoded_dc, dc_decoding_map):
-        dc_differences = self.decode_huffman_data(encoded_dc, dc_decoding_map)
+        dc_differences = self.temp #self.decode_huffman_data(encoded_dc, dc_decoding_map)
+        #dc_differences = self.decode_huffman_data(encoded_dc, dc_decoding_map)### Uncomment this for actual result
         dc_coefficients = []
+        global new_enc
+        new_enc = []
         previous_dc = 0
+        print(dc_differences[900:950])
+        count = 0
         for diff in dc_differences:
             current_dc = previous_dc + diff
+            if(count<100):
+                count+=1
             dc_coefficients.append(current_dc)
             previous_dc = current_dc
+            new_enc.append(diff)
+        print(dc_coefficients[900:950])
         return dc_coefficients
 
     # Decode AC coefficients
@@ -350,30 +360,29 @@ class JPEGCodec:
     
 
 test_images = ["flower.png", "tower.png", "house.png"]
-codec = JPEGCodec(100)
+Q = 1000
+codec = JPEGCodec()
 image = cv2.imread('images\\' + test_images[2])
-bits = codec.encode(image)
-reconstructed_image = codec.decode(bits)
+bits = codec.encode(image, Q)
+reconstructed_image = codec.decode(bits, Q)
 
-# plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-# plt.title("Original Image")
-# plt.show()
+plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), cmap='gray')
+plt.title("Original Image")
+plt.show()
 
-# plt.imshow(reconstructed_image, cmap='gray')
-# plt.title("Reconstructed Image")
-# plt.show()
+plt.imshow(reconstructed_image, cmap='gray')
+plt.title("Reconstructed Image")
+plt.show()
+
+print(image.shape)
+print(old_enc[900:950])
+print(new_enc[900:950])
+print(sum((np.array(old_enc)-np.array(new_enc)) != 0))
+
+# Find indices where old_enc and new_enc are not equal
+diff_indices = np.where(np.array(old_enc) != np.array(new_enc))[0]
+print("Indices where old_enc and new_enc differ:", diff_indices)
 
 
-print(old_quant[old_quant>0])
-print(new_quant[new_quant>0])
-
-old_positive_indices = np.argwhere(old_quant > 0)
-new_positive_indices = np.argwhere(new_quant > 0)
-
-print("Indices of positive values in old_quant:")
-print(old_positive_indices)
-
-print("Indices of positive values in new_quant:")
-print(new_positive_indices)
 
 
