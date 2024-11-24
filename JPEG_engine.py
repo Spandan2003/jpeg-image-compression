@@ -244,7 +244,7 @@ def jpeg_huffman_decode(dc_codes, ac_codes, encoded_dc, encoded_ac, height, widt
 
 
 # image_add = input('Please specify the image to compress from images directory : ')
-image_add = 'Test_bird.png'
+image_add = 'house.png'
 image_add = 'images\\' + image_add
 
 image = cv2.imread(image_add)
